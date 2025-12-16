@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+	<title>Система управления расписанием для салонов красоты</title>
+	<link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+	<header class="topbar">
+		<div class="container container--wide topbar__inner">
+			<div class="brand" aria-label="Система управления расписанием для салонов красоты">
+				<div class="brand__text">
+					<div class="brand__title">Система управления расписанием</div>
+					<div class="brand__subtitle">для салонов красоты</div>
+				</div>
+			</div>
+
+			<nav class="tabs" id="tabs" aria-label="Навигация" role="tablist">
+				<button class="tab is-active" data-route="book" type="button" role="tab" aria-selected="true">
+					Запись
+				</button>
+				<button class="tab" data-route="schedule" type="button" role="tab" aria-selected="false">
+					Расписание
+				</button>
+				<button class="tab" data-route="history" type="button" role="tab" aria-selected="false">
+					История
+				</button>
+				<button class="tab" data-route="admin" type="button" role="tab" aria-selected="false">
+					Админ
+				</button>
+			</nav>
+		</div>
+	</header>
+
+	<main class="container container--wide" id="main">
+		<h1 class="sr-only">Система управления расписанием для салонов красоты</h1>
+
+		<section class="card" id="view-book" role="tabpanel">
+			<header class="card__head">
+				<h2 class="card__title">Записаться к мастеру</h2>
+			</header>
+
+			<form class="layout-2col layout-2col--book" autocomplete="on" novalidate>
+				<div class="col col--left">
+					<label class="field">
+						<span class="field__label">Мастер</span>
+						<select id="bookMaster" aria-label="Выбор мастера"></select>
+					</label>
+
+					<label class="field">
+						<span class="field__label">Дата</span>
+						<input id="bookDate" type="date" aria-label="Дата записи" />
+					</label>
+
+					<div class="field" role="group" aria-label="Услуги">
+						<div class="field__label">Услуги</div>
+						<div id="bookServices" class="chips" aria-live="polite"></div>
+						<div class="hint">Выбери 1+ услуг. Длительность = сумма длительностей.</div>
+					</div>
+
+					<label class="field">
+						<span class="field__label">Имя клиента</span>
+						<input id="clientName" type="text" placeholder="Напр. Анна" autocomplete="name" />
+					</label>
+
+					<label class="field">
+						<span class="field__label">Телефон</span>
+						<input id="clientPhone" type="tel" placeholder="+7..." autocomplete="tel" inputmode="tel" />
+						<div class="hint">Телефон используется для поиска истории.</div>
+					</label>
+
+					<label class="field">
+						<span class="field__label">Комментарий</span>
+						<input id="bookComment" type="text" placeholder="Любые пожелания (необязательно)" autocomplete="off" />
+					</label>
+				</div>
+
+				<div class="col col--right">
+					<div class="row row--space row--kpi">
+						<div class="kpi" aria-label="Длительность выбранных услуг">
+							<div class="kpi__label">Длительность</div>
+							<div class="kpi__value" id="bookDuration">—</div>
+						</div>
+
+						<button class="btn" id="btnFindSlots" type="button">
+							Показать доступное время
+						</button>
+					</div>
+
+					<div class="slots slots--stable" id="bookSlots" aria-live="polite" aria-busy="false"></div>
+
+					<div class="row row--space">
+						<div class="note" id="bookNote" role="status" aria-live="polite">
+							Выбери мастера, дату и услуги.
+						</div>
+						<button class="btn btn--primary" id="btnBook" type="button" disabled>
+							Создать запись
+						</button>
+					</div>
+				</div>
+			</form>
+		</section>
+
+		<section class="card is-hidden" id="view-schedule" role="tabpanel">
+			<header class="card__head">
+				<h2 class="card__title">Расписание мастера</h2>
+			</header>
+
+			<form class="layout-2col layout-2col--schedule" autocomplete="off" novalidate>
+				<div class="col col--left">
+					<label class="field">
+						<span class="field__label">Мастер</span>
+						<select id="schMaster" aria-label="Мастер для расписания"></select>
+					</label>
+
+					<label class="field">
+						<span class="field__label">Дата (опорная)</span>
+						<input id="schDate" type="date" aria-label="Опорная дата расписания" />
+					</label>
+
+					<label class="field">
+						<span class="field__label">Режим</span>
+						<select id="schMode" aria-label="Режим просмотра расписания">
+							<option value="day">День</option>
+							<option value="week">Неделя</option>
+						</select>
+					</label>
+
+					<div class="row row--space">
+						<div class="note" id="schNote" role="status" aria-live="polite">
+							Выбери мастера и дату.
+						</div>
+						<button class="btn" id="btnRefreshSchedule" type="button">Обновить</button>
+					</div>
+				</div>
+
+				<div class="col col--right">
+					<div class="table table--stable" id="scheduleTable" aria-live="polite"></div>
+					<div class="week" id="weekGrid" aria-live="polite"></div>
+				</div>
+			</form>
+		</section>
+
+		<section class="card is-hidden" id="view-history" role="tabpanel">
+			<header class="card__head">
+				<h2 class="card__title">История заказанных услуг</h2>
+			</header>
+
+			<form class="layout-2col layout-2col--history" autocomplete="off" novalidate>
+				<div class="col col--left">
+					<label class="field">
+						<span class="field__label">Телефон клиента</span>
+						<input id="hisPhone" type="tel" placeholder="+7..." inputmode="tel" autocomplete="tel" />
+					</label>
+
+					<label class="field">
+						<span class="field__label">Статус</span>
+						<select id="hisStatus" aria-label="Фильтр статуса">
+							<option value="all">Все</option>
+							<option value="booked">Запланировано</option>
+							<option value="completed">Завершено</option>
+							<option value="cancelled">Отменено</option>
+							<option value="no_show">Не явился</option>
+						</select>
+					</label>
+
+					<div class="row row--space">
+						<div class="note" id="hisNote" role="status" aria-live="polite">
+							Введите телефон и нажмите “Найти”.
+						</div>
+						<button class="btn" id="btnFindHistory" type="button">Найти</button>
+					</div>
+				</div>
+
+				<div class="col col--right">
+					<div class="table table--stable" id="historyTable" aria-live="polite"></div>
+				</div>
+			</form>
+		</section>
+
+		<section class="card is-hidden" id="view-admin" role="tabpanel">
+			<header class="card__head">
+				<h2 class="card__title">Администрирование</h2>
+			</header>
+
+			<div class="layout-2col">
+				<div class="col col--left">
+					<div class="note">
+						Здесь можно добавлять мастеров/услуги, назначать услуги мастеру и задавать график на дату.
+					</div>
+
+					<div class="split">
+						<section class="panel" aria-label="Мастера">
+							<h3 class="h2">Мастера</h3>
+							<div class="row row--stretch row--form">
+								<input id="admMasterName" placeholder="ФИО" />
+								<input id="admMasterSpec" placeholder="Специализация" />
+								<button class="btn" id="btnAddMaster" type="button">Добавить</button>
+							</div>
+							<div class="table table--stable" id="admMastersTable"></div>
+						</section>
+
+						<section class="panel" aria-label="Услуги">
+							<h3 class="h2">Услуги (₽)</h3>
+							<div class="row row--stretch row--form">
+								<input id="admServiceName" placeholder="Название" />
+								<input id="admServiceDur" type="number" min="5" step="5" placeholder="Мин" />
+								<input id="admServicePrice" type="number" min="0" step="50" placeholder="Цена ₽" />
+								<button class="btn" id="btnAddService" type="button">Добавить</button>
+							</div>
+							<div class="table table--stable" id="admServicesTable"></div>
+						</section>
+					</div>
+				</div>
+
+				<div class="col col--right">
+					<div class="split">
+						<section class="panel" aria-label="Услуги мастера">
+							<h3 class="h2">Услуги мастера</h3>
+							<div class="row">
+								<select id="admMSMaster" aria-label="Мастер для настройки услуг"></select>
+							</div>
+							<div class="chips" id="admMSChips" aria-live="polite"></div>
+						</section>
+
+						<section class="panel" aria-label="График на дату">
+							<h3 class="h2">График на дату</h3>
+							<div class="row row--stretch row--form">
+								<select id="admWSMaster" aria-label="Мастер для графика"></select>
+								<input id="admWSDate" type="date" aria-label="Дата графика" />
+							</div>
+
+							<div class="row row--stretch row--ws row--form">
+								<label class="checkbox-btn" for="admWSDayOff">
+									<input id="admWSDayOff" type="checkbox" />
+									<span class="checkmark"></span>
+									<span class="checkbox-text">выходной</span>
+								</label>
+
+								<input id="admWSStart" type="time" value="10:00" aria-label="Начало смены" />
+								<input id="admWSEnd" type="time" value="18:00" aria-label="Конец смены" />
+								<button class="btn" id="btnSaveWS" type="button">Сохранить</button>
+							</div>
+
+							<div class="hint">Если выходной — время не важно.</div>
+						</section>
+					</div>
+				</div>
+			</div>
+		</section>
+	</main>
+
+	<footer class="footer">
+		<div class="container container--wide footer__inner">
+			<div class="footer__left">
+				<span class="footer__copy">© 2025</span>
+				<span class="footer__sep">•</span>
+				<span class="footer__name">Система управления расписанием</span>
+			</div>
+			<button class="link footer__reset" id="btnReset" type="button">Сбросить данные</button>
+		</div>
+	</footer>
+
+	<script type="module" src="src/app/main.js"></script>
+</body>
+
+</html>
