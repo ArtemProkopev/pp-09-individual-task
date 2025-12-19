@@ -1,0 +1,37 @@
+@startuml
+left to right direction
+actor "Клиент" as Client
+actor "Администратор" as Admin
+
+rectangle "Beauty Scheduler" {
+  usecase "UC-01\nЗагрузить данные (snapshot)\n(GET /snapshot)" as UC1
+  usecase "UC-02\nСбросить демо-данные\n(POST /reset)" as UC2
+  usecase "UC-03\nСоздать/обновить клиента\n(POST /clients/upsert)" as UC3
+  usecase "UC-04\nСоздать запись\n(POST /appointments)" as UC4
+  usecase "UC-05\nИзменить статус записи\n(PATCH /appointments/${id}/status)" as UC5
+  usecase "UC-06\nДобавить мастера\n(POST /masters)" as UC6
+  usecase "UC-07\nВкл/выкл мастера\n(PATCH /masters/${id}/toggle)" as UC7
+  usecase "UC-08\nУдалить мастера\n(DELETE /masters/${id})" as UC8
+  usecase "UC-09\nДобавить услугу\n(POST /services)" as UC9
+  usecase "UC-10\nВкл/выкл услугу\n(PATCH /services/${id}/toggle)" as UC10
+  usecase "UC-11\nУдалить услугу\n(DELETE /services/${id})" as UC11
+  usecase "UC-12\nНазначить/убрать услугу мастеру\n(PUT /master-services)" as UC12
+  usecase "UC-13\nНастроить рабочий слот\n(PUT /working-slots)" as UC13
+}
+
+Client --> UC1
+Admin --> UC1
+Admin --> UC2
+Client --> UC3
+Client --> UC4
+Admin --> UC5
+Admin --> UC6
+Admin --> UC7
+Admin --> UC8
+Admin --> UC9
+Admin --> UC10
+Admin --> UC11
+Admin --> UC12
+Admin --> UC13
+
+@enduml

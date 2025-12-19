@@ -1,9 +1,8 @@
 import {
-	createAppointment,
 	fmtMoney,
 	listAppointmentsByMasterAndDate,
-	upsertClient,
 } from '../../data/domain/db.js'
+import { api } from '../../data/storage/api.js'
 import {
 	buildAvailableSlotsCached,
 	sumDuration,
@@ -240,7 +239,7 @@ export function initBook(dom, ctx) {
 		)
 	})
 
-	dom.btnBook.addEventListener('click', () => {
+	dom.btnBook.addEventListener('click', async () => {
 		const name = dom.clientName.value.trim()
 		const phone = normalizePhone(dom.clientPhone.value)
 
@@ -274,18 +273,14 @@ export function initBook(dom, ctx) {
 
 		let createdAppt = null
 
-		commit(db2 => {
-			const client = upsertClient(db2, { full_name: name, phone })
-			if (!client) return
-
-			const comment = dom.bookComment.value.trim()
-
-			createdAppt = createAppointment(db2, {
+		await commit(async () => {
+			const client = await api.upsertClient({ full_name: name, phone })
+			createdAppt = await api.createAppointment({
 				client_id: client.client_id,
 				master_id: masterId,
 				start_dt: selectedSlot.start_dt,
 				end_dt: selectedSlot.end_dt,
-				comment,
+				comment: dom.bookComment.value.trim(),
 				items: services.map(s => ({
 					service_id: s.service_id,
 					price_at_time: s.price,

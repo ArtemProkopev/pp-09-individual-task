@@ -1,12 +1,8 @@
-import { makeSeed } from '../data/seed/seed.js'
-import { ensureSeed, resetDB } from '../data/storage/localStorage.js'
 import { fillMasters, setDefaultDates } from './selects.js'
 
 export function initFooter(dom, ctx) {
-	dom.btnReset.addEventListener('click', () => {
-		resetDB()
-
-		ctx.store.replaceDB(ensureSeed(makeSeed))
+	dom.btnReset.addEventListener('click', async () => {
+		await ctx.store.reset()
 
 		const db = ctx.getDB()
 

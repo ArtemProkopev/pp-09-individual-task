@@ -1,0 +1,18 @@
+# Node.js
+node_modules/
+
+# SQLite (локальная БД)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

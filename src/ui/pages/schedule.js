@@ -1,8 +1,8 @@
 import {
 	listAppointmentsByMasterAndDate,
 	listAppointmentsByMasterRange,
-	setAppointmentStatus,
 } from '../../data/domain/db.js'
+import { api } from '../../data/storage/api.js'
 import { escapeHTML } from '../../shared/dom/dom.js'
 import { loadUIState, patchUIState } from '../state.js'
 
@@ -222,16 +222,17 @@ export function initSchedule(dom, ctx) {
 		renderSchedule()
 	})
 
-	dom.scheduleTable.addEventListener('change', e => {
+	dom.scheduleTable.addEventListener('change', async e => {
 		const sel = e.target.closest('select[data-act]')
 		if (!sel) return
 		const id = sel.dataset.act
 		const status = sel.value
 		if (!status) return
 
-		commit(db => {
-			setAppointmentStatus(db, id, status)
+		await commit(async () => {
+			await api.setAppointmentStatus(id, status)
 		})
+
 		renderSchedule()
 	})
 

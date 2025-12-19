@@ -1,18 +1,19 @@
 import { clearSlotCache } from '../../scheduler/scheduler.js'
-import { bumpRev } from '../domain/db.js'
 import { buildIndexes } from '../indexes/indexes.js'
-import { prepareDB, validateAndHeal } from '../schema/prepareDB.js'
-import { saveDB } from '../storage/localStorage.js'
+import { prepareDB } from '../schema/prepareDB.js'
+import { api } from '../storage/api.js'
 
-export function createStore(initialDB) {
-	let db = prepareDB(initialDB)
-	let ix = buildIndexes(db)
+export function createStore() {
+	let db = null
+	let ix = null
 	const listeners = new Set()
 
 	function getDB() {
+		if (!db) throw new Error('DB not loaded yet')
 		return db
 	}
 	function getIX() {
+		if (!ix) throw new Error('Indexes not built yet')
 		return ix
 	}
 
@@ -25,30 +26,25 @@ export function createStore(initialDB) {
 		for (const fn of listeners) fn(db, ix)
 	}
 
-	function commit(mutator, { clearCache = true } = {}) {
-		const beforeRev = db.rev ?? 0
-
-		mutator(db)
-
-		validateAndHeal(db)
-
-		const afterRev = db.rev ?? 0
-		if (afterRev === beforeRev) bumpRev(db)
-
-		saveDB(db)
-		ix = buildIndexes(db)
-
-		if (clearCache) clearSlotCache()
-		notify()
-	}
-
-	function replaceDB(nextDB, { clearCache = true } = {}) {
-		db = prepareDB(nextDB)
-		saveDB(db)
+	async function reload({ clearCache = true } = {}) {
+		const snap = await api.snapshot()
+		db = prepareDB(snap)
 		ix = buildIndexes(db)
 		if (clearCache) clearSlotCache()
 		notify()
+		return db
 	}
 
-	return { getDB, getIX, commit, replaceDB, subscribe }
+	// commit = выполнить API-действие, потом перезагрузить snapshot
+	async function commit(action, { clearCache = true } = {}) {
+		await action()
+		await reload({ clearCache })
+	}
+
+	async function reset() {
+		await api.reset()
+		await reload()
+	}
+
+	return { getDB, getIX, commit, reload, reset, subscribe }
 }

@@ -1,17 +1,6 @@
-import {
-	addMaster,
-	addService,
-	deleteMaster,
-	deleteService,
-	fmtMoney,
-	getMasters,
-	getServices,
-	setMasterService,
-	toggleMasterActive,
-	toggleServiceActive,
-	upsertWorkingSlot,
-} from '../../data/domain/db.js'
+import { fmtMoney, getMasters, getServices } from '../../data/domain/db.js'
 
+import { api } from '../../data/storage/api.js'
 import { clearSlotCache } from '../../scheduler/scheduler.js'
 import { escapeHTML } from '../../shared/dom/dom.js'
 import { refillMastersPreserve } from '../selects.js'
@@ -178,19 +167,19 @@ export function initAdmin(dom, ctx) {
 		renderAdminWorkingSlot()
 	}
 
-	dom.admMastersTable.addEventListener('change', e => {
+	dom.admMastersTable.addEventListener('change', async e => {
 		const cb = e.target.closest('input[type="checkbox"][data-tm]')
 		if (!cb) return
 
-		commit(db => {
-			toggleMasterActive(db, cb.dataset.tm)
+		await commit(async () => {
+			await api.toggleMaster(cb.dataset.tm)
 		})
 
 		ctx.refreshMastersSelects?.()
 		ctx.refreshBookAfterDataChange?.()
 	})
 
-	dom.admMastersTable.addEventListener('click', e => {
+	dom.admMastersTable.addEventListener('click', async e => {
 		const btn = e.target.closest('button[data-del-master]')
 		if (!btn) return
 
@@ -209,8 +198,8 @@ export function initAdmin(dom, ctx) {
 		)
 		if (!ok) return
 
-		commit(db2 => {
-			deleteMaster(db2, id)
+		await commit(async () => {
+			await api.deleteMaster(id)
 		})
 
 		ctx.refreshMastersSelects?.()
@@ -218,18 +207,18 @@ export function initAdmin(dom, ctx) {
 		renderAdminAll()
 	})
 
-	dom.admServicesTable.addEventListener('change', e => {
+	dom.admServicesTable.addEventListener('change', async e => {
 		const cb = e.target.closest('input[type="checkbox"][data-ts]')
 		if (!cb) return
 
-		commit(db => {
-			toggleServiceActive(db, cb.dataset.ts)
+		await commit(async () => {
+			await api.toggleService(cb.dataset.ts)
 		})
 
 		ctx.refreshBookAfterDataChange?.()
 	})
 
-	dom.admServicesTable.addEventListener('click', e => {
+	dom.admServicesTable.addEventListener('click', async e => {
 		const btn = e.target.closest('button[data-del-service]')
 		if (!btn) return
 
@@ -247,15 +236,15 @@ export function initAdmin(dom, ctx) {
 		)
 		if (!ok) return
 
-		commit(db2 => {
-			deleteService(db2, id)
+		await commit(async () => {
+			await api.deleteService(id)
 		})
 
 		ctx.refreshBookAfterDataChange?.()
 		renderAdminAll()
 	})
 
-	dom.admMSChips.addEventListener('click', e => {
+	dom.admMSChips.addEventListener('click', async e => {
 		const btn = e.target.closest('.chip')
 		if (!btn) return
 		const masterId = dom.admMSMaster.value
@@ -264,21 +253,25 @@ export function initAdmin(dom, ctx) {
 
 		const enabled = !btn.classList.contains('is-on')
 
-		commit(db => {
-			setMasterService(db, masterId, serviceId, enabled)
+		await commit(async () => {
+			await api.setMasterService({
+				master_id: masterId,
+				service_id: serviceId,
+				enabled,
+			})
 		})
 
 		renderAdminMasterServices()
 		ctx.refreshBookAfterDataChange?.()
 	})
 
-	dom.btnAddMaster.addEventListener('click', () => {
+	dom.btnAddMaster.addEventListener('click', async () => {
 		const name = dom.admMasterName.value.trim()
 		const spec = dom.admMasterSpec.value.trim()
 		if (!name || !spec) return
 
-		commit(db => {
-			addMaster(db, { full_name: name, specialization: spec })
+		await commit(async () => {
+			await api.addMaster({ full_name: name, specialization: spec })
 		})
 
 		dom.admMasterName.value = ''
@@ -289,14 +282,14 @@ export function initAdmin(dom, ctx) {
 		renderAdminAll()
 	})
 
-	dom.btnAddService.addEventListener('click', () => {
+	dom.btnAddService.addEventListener('click', async () => {
 		const name = dom.admServiceName.value.trim()
 		const dur = Number(dom.admServiceDur.value)
 		const price = Number(dom.admServicePrice.value)
 		if (!name || !dur || dur <= 0 || price < 0) return
 
-		commit(db => {
-			addService(db, { name, duration_min: dur, price })
+		await commit(async () => {
+			await api.addService({ name, duration_min: dur, price })
 		})
 
 		dom.admServiceName.value = ''
@@ -311,16 +304,16 @@ export function initAdmin(dom, ctx) {
 	dom.admWSMaster.addEventListener('change', renderAdminWorkingSlot)
 	dom.admWSDate.addEventListener('change', renderAdminWorkingSlot)
 
-	dom.btnSaveWS.addEventListener('click', () => {
-		const masterId = dom.admWSMaster.value
+	dom.btnSaveWS.addEventListener('click', async () => {
+		const master_id = dom.admWSMaster.value
 		const date = dom.admWSDate.value
 		const is_day_off = dom.admWSDayOff.checked
 		const start_time = dom.admWSStart.value
 		const end_time = dom.admWSEnd.value
 
-		commit(db => {
-			upsertWorkingSlot(db, {
-				masterId,
+		await commit(async () => {
+			await api.upsertWorkingSlot({
+				master_id,
 				date,
 				start_time,
 				end_time,

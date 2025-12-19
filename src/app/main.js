@@ -1,6 +1,3 @@
-import { makeSeed } from '../data/seed/seed.js'
-import { ensureSeed } from '../data/storage/localStorage.js'
-
 import { getDom } from '../ui/domMap.js'
 import { initRouter } from '../ui/router.js'
 import {
@@ -19,54 +16,63 @@ import { createStore } from '../data/store/store.js'
 import { loadUIState } from '../ui/state.js'
 
 const dom = getDom()
-const store = createStore(ensureSeed(makeSeed))
 
-const ctx = {
-	store,
+async function bootstrap() {
+	const store = createStore()
+	await store.reload()
 
-	getDB: store.getDB,
-	getIX: store.getIX,
-	commit: store.commit,
+	const ctx = {
+		store,
 
-	onReset: [],
+		getDB: store.getDB,
+		getIX: store.getIX,
+		commit: store.commit,
 
-	renderAdminAll: null,
-	renderSchedule: null,
-	renderHistory: null,
+		onReset: [],
 
-	refreshMastersSelects: () => {
-		const db = store.getDB()
-		refillMastersPreserve(db, dom.bookMaster, { includeInactive: false })
-		refillMastersPreserve(db, dom.schMaster, { includeInactive: false })
-		refillMastersPreserve(db, dom.admMSMaster, { includeInactive: true })
-		refillMastersPreserve(db, dom.admWSMaster, { includeInactive: true })
-	},
+		renderAdminAll: null,
+		renderSchedule: null,
+		renderHistory: null,
 
-	refreshBookAfterDataChange: null,
+		refreshMastersSelects: () => {
+			const db = store.getDB()
+			refillMastersPreserve(db, dom.bookMaster, { includeInactive: false })
+			refillMastersPreserve(db, dom.schMaster, { includeInactive: false })
+			refillMastersPreserve(db, dom.admMSMaster, { includeInactive: true })
+			refillMastersPreserve(db, dom.admWSMaster, { includeInactive: true })
+		},
+
+		refreshBookAfterDataChange: null,
+	}
+
+	// init base UI
+	fillMasters(store.getDB(), dom.bookMaster, { includeInactive: false })
+	fillMasters(store.getDB(), dom.schMaster, { includeInactive: false })
+	setDefaultDates(dom)
+
+	// init modules
+	initBook(dom, ctx)
+	initSchedule(dom, ctx)
+	initHistory(dom, ctx)
+	initAdmin(dom, ctx)
+	initFooter(dom, ctx)
+
+	// router: start with saved tab
+	const ui = loadUIState()
+
+	const router = initRouter(dom, {
+		initialRoute: ui.route || 'book',
+		onRoute: route => {
+			if (route === 'admin') ctx.renderAdminAll?.()
+			if (route === 'schedule') ctx.renderSchedule?.()
+			if (route === 'history') ctx.renderHistory?.()
+		},
+	})
+
+	router.setRoute(ui.route || 'book')
 }
 
-// init base UI
-fillMasters(store.getDB(), dom.bookMaster, { includeInactive: false })
-fillMasters(store.getDB(), dom.schMaster, { includeInactive: false })
-setDefaultDates(dom)
-
-// init modules
-initBook(dom, ctx)
-initSchedule(dom, ctx)
-initHistory(dom, ctx)
-initAdmin(dom, ctx)
-initFooter(dom, ctx)
-
-// router: start with saved tab
-const ui = loadUIState()
-
-const router = initRouter(dom, {
-	initialRoute: ui.route || 'book',
-	onRoute: route => {
-		if (route === 'admin') ctx.renderAdminAll?.()
-		if (route === 'schedule') ctx.renderSchedule?.()
-		if (route === 'history') ctx.renderHistory?.()
-	},
+bootstrap().catch(err => {
+	console.error(err)
+	alert('Ошибка запуска. Проверь, запущен ли сервер на http://localhost:5174')
 })
-
-router.setRoute(ui.route || 'book')

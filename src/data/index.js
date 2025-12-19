@@ -1,6 +1,5 @@
 export * from './domain/db.js'
 export * from './indexes/indexes.js'
 export * from './schema/prepareDB.js'
-export * from './seed/seed.js'
-export * from './storage/localStorage.js'
+export * from './storage/api.js'
 export * from './store/store.js'
