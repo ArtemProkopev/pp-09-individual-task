@@ -7,12 +7,13 @@ import {
 	buildAvailableSlotsCached,
 	sumDuration,
 } from '../../scheduler/scheduler.js'
-import { escapeHTML, setBusy } from '../../shared/dom/dom.js'
+import { clear, delegate, el, setBusy, setText } from '../../shared/dom/dom.js'
 import { loadUIState, patchUIState } from '../state.js'
 
 export function initBook(dom, ctx) {
 	let selectedServiceIds = new Set()
 	let selectedSlot = null
+	let pickedSlotBtn = null
 
 	let lastAutoFilledName = ''
 	let autofillEnabled = true
@@ -64,16 +65,22 @@ export function initBook(dom, ctx) {
 	function renderDurationAndNote() {
 		const services = getSelectedServices()
 		const dur = services.length ? sumDuration(services) : null
-		dom.bookDuration.textContent = dur ? `${dur} мин` : '—'
+		setText(dom.bookDuration, dur ? `${dur} мин` : '—')
 
 		const ok = Boolean(
 			dom.bookMaster.value && dom.bookDate.value && services.length
 		)
 		dom.btnFindSlots.disabled = !ok
+
+		// слот нужно выбрать заново после любых изменений
 		dom.btnBook.disabled = true
-		dom.bookNote.textContent = ok
-			? 'Нажмите “Показать доступное время”, затем выберите слот.'
-			: 'Выбери мастера, дату и услуги.'
+
+		setText(
+			dom.bookNote,
+			ok
+				? 'Нажмите “Показать доступное время”, затем выберите слот.'
+				: 'Выбери мастера, дату и услуги.'
+		)
 	}
 
 	function renderServiceChips() {
@@ -87,48 +94,79 @@ export function initBook(dom, ctx) {
 			if (s && s.active) services.push(s)
 		}
 
+		// если сменился мастер — выкинуть выбранные услуги, которые ему недоступны
 		selectedServiceIds = new Set(
 			[...selectedServiceIds].filter(id => allowed.has(id))
 		)
 
-		dom.bookServices.innerHTML = services
-			.map(s => {
-				const on = selectedServiceIds.has(s.service_id)
-				return `<button type="button" class="chip${
-					on ? ' is-on' : ''
-				}" data-sid="${s.service_id}" aria-pressed="${
-					on ? 'true' : 'false'
-				}" title="Выбрать услугу">
-					${escapeHTML(s.name)} <small>${s.duration_min} мин • ${fmtMoney(
-					s.price
-				)}</small>
-				</button>`
-			})
-			.join('')
+		clear(dom.bookServices)
+		const frag = document.createDocumentFragment()
 
+		for (const s of services) {
+			const on = selectedServiceIds.has(s.service_id)
+			const btn = el(
+				'button',
+				{
+					className: `chip${on ? ' is-on' : ''}`,
+					dataset: { sid: s.service_id },
+					attrs: {
+						type: 'button',
+						'aria-pressed': on ? 'true' : 'false',
+						title: 'Выбрать услугу',
+					},
+				},
+				s.name,
+				' ',
+				el('small', null, `${s.duration_min} мин • ${fmtMoney(s.price)}`)
+			)
+
+			frag.appendChild(btn)
+		}
+
+		dom.bookServices.appendChild(frag)
 		renderDurationAndNote()
 	}
 
-	function renderSlots(slots, metaText = '') {
-		dom.bookSlots.innerHTML = ''
+	function clearPickedSlot() {
 		selectedSlot = null
+		if (pickedSlotBtn) pickedSlotBtn.classList.remove('is-picked')
+		pickedSlotBtn = null
 		dom.btnBook.disabled = true
+	}
+
+	function renderSlots(slots, metaText = '') {
+		clear(dom.bookSlots)
+		clearPickedSlot()
 
 		if (!slots.length) {
-			dom.bookSlots.innerHTML = `<div class="hint">Слоты не показаны или нет свободного времени.</div>`
-			if (metaText) dom.bookNote.textContent = metaText
+			dom.bookSlots.appendChild(
+				el(
+					'div',
+					{ className: 'hint' },
+					'Слоты не показаны или нет свободного времени.'
+				)
+			)
+			if (metaText) setText(dom.bookNote, metaText)
 			return
 		}
 
-		if (metaText) dom.bookNote.textContent = metaText
+		if (metaText) setText(dom.bookNote, metaText)
 
-		dom.bookSlots.innerHTML = slots
-			.map(
-				s => `<button type="button" class="slot" data-start="${s.start_dt}" data-end="${s.end_dt}">
-					${s.startHHMM}–${s.endHHMM}
-				</button>`
+		const frag = document.createDocumentFragment()
+		for (const s of slots) {
+			frag.appendChild(
+				el(
+					'button',
+					{
+						className: 'slot',
+						dataset: { start: s.start_dt, end: s.end_dt },
+						attrs: { type: 'button' },
+					},
+					`${s.startHHMM}–${s.endHHMM}`
+				)
 			)
-			.join('')
+		}
+		dom.bookSlots.appendChild(frag)
 	}
 
 	function tryAutofillNameByPhone() {
@@ -152,30 +190,26 @@ export function initBook(dom, ctx) {
 		}
 	}
 
-	dom.bookServices.addEventListener('click', e => {
-		const btn = e.target.closest('.chip')
-		if (!btn) return
-
+	// === делегирование кликов по услугам ===
+	delegate(dom.bookServices, 'click', '.chip', (e, btn) => {
 		const serviceId = btn.dataset.sid
 		if (!serviceId) return
 
 		if (selectedServiceIds.has(serviceId)) selectedServiceIds.delete(serviceId)
 		else selectedServiceIds.add(serviceId)
 
-		selectedSlot = null
+		clearPickedSlot()
 		renderServiceChips()
 		renderSlots([])
 		persistState()
 	})
 
-	dom.bookSlots.addEventListener('click', e => {
-		const btn = e.target.closest('.slot')
-		if (!btn) return
-
-		for (const el of dom.bookSlots.querySelectorAll('.slot'))
-			el.classList.remove('is-picked')
-
+	// === делегирование кликов по слотам ===
+	delegate(dom.bookSlots, 'click', '.slot', (e, btn) => {
+		if (pickedSlotBtn) pickedSlotBtn.classList.remove('is-picked')
 		btn.classList.add('is-picked')
+		pickedSlotBtn = btn
+
 		const txt = btn.textContent.trim()
 		selectedSlot = {
 			start_dt: btn.dataset.start,
@@ -185,18 +219,21 @@ export function initBook(dom, ctx) {
 		}
 
 		dom.btnBook.disabled = false
-		dom.bookNote.textContent = `Выбран слот ${selectedSlot.startHHMM}–${selectedSlot.endHHMM}. Заполните имя/телефон и создайте запись.`
+		setText(
+			dom.bookNote,
+			`Выбран слот ${selectedSlot.startHHMM}–${selectedSlot.endHHMM}. Заполните имя/телефон и создайте запись.`
+		)
 	})
 
 	dom.bookMaster.addEventListener('change', () => {
-		selectedSlot = null
+		clearPickedSlot()
 		renderServiceChips()
 		renderSlots([])
 		persistState()
 	})
 
 	dom.bookDate.addEventListener('change', () => {
-		selectedSlot = null
+		clearPickedSlot()
 		renderSlots([])
 		persistState()
 	})
@@ -244,11 +281,11 @@ export function initBook(dom, ctx) {
 		const phone = normalizePhone(dom.clientPhone.value)
 
 		if (!name || !phone) {
-			dom.bookNote.textContent = 'Введите имя и телефон клиента.'
+			setText(dom.bookNote, 'Введите имя и телефон клиента.')
 			return
 		}
 		if (!selectedSlot) {
-			dom.bookNote.textContent = 'Сначала выберите слот времени.'
+			setText(dom.bookNote, 'Сначала выберите слот времени.')
 			return
 		}
 
@@ -259,6 +296,7 @@ export function initBook(dom, ctx) {
 		const services = getSelectedServices()
 		const existing = listAppointmentsByMasterAndDate(db, masterId, dateStr)
 
+		// клиентская “страховка” от гонки, а сервер всё равно проверит конфликт
 		const conflict = existing.some(
 			a =>
 				a.status !== 'cancelled' &&
@@ -266,8 +304,7 @@ export function initBook(dom, ctx) {
 				selectedSlot.start_dt < a.end_dt
 		)
 		if (conflict) {
-			dom.bookNote.textContent =
-				'Этот слот уже занят. Обновите доступные слоты.'
+			setText(dom.bookNote, 'Этот слот уже занят. Обновите доступные слоты.')
 			return
 		}
 
@@ -291,12 +328,15 @@ export function initBook(dom, ctx) {
 
 		if (!createdAppt) return
 
-		dom.bookNote.textContent = `Запись создана: ${createdAppt.start_dt.slice(
-			11,
-			16
-		)}–${createdAppt.end_dt.slice(11, 16)}.`
-		selectedSlot = null
-		dom.btnBook.disabled = true
+		setText(
+			dom.bookNote,
+			`Запись создана: ${createdAppt.start_dt.slice(
+				11,
+				16
+			)}–${createdAppt.end_dt.slice(11, 16)}.`
+		)
+
+		clearPickedSlot()
 		renderSlots([])
 	})
 
@@ -313,13 +353,13 @@ export function initBook(dom, ctx) {
 
 	function resetBookUI() {
 		selectedServiceIds.clear()
-		selectedSlot = null
+		clearPickedSlot()
 		lastAutoFilledName = ''
 		autofillEnabled = true
 
 		renderServiceChips()
 		renderSlots([])
-		dom.bookNote.textContent = 'Выбери мастера, дату и услуги.'
+		setText(dom.bookNote, 'Выбери мастера, дату и услуги.')
 	}
 
 	ctx.onReset.push(resetBookUI)
@@ -330,7 +370,7 @@ export function initBook(dom, ctx) {
 	persistState()
 
 	ctx.refreshBookAfterDataChange = () => {
-		selectedSlot = null
+		clearPickedSlot()
 		renderServiceChips()
 		renderSlots([])
 		persistState()

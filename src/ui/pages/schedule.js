@@ -61,16 +61,13 @@ export function initSchedule(dom, ctx) {
 
 		dom.weekGrid.innerHTML = ''
 		if (!appts.length) {
-			dom.schNote.textContent = `${escapeHTML(
-				masterName
-			)}: записей на ${dateStr} нет.`
+			// ВАЖНО: textContent безопасен, escapeHTML не нужен
+			dom.schNote.textContent = `${masterName}: записей на ${dateStr} нет.`
 			dom.scheduleTable.innerHTML = ''
 			return
 		}
 
-		dom.schNote.textContent = `${escapeHTML(
-			masterName
-		)}: записей на ${dateStr} — ${appts.length}`
+		dom.schNote.textContent = `${masterName}: записей на ${dateStr} — ${appts.length}`
 
 		const rows = []
 		rows.push(
@@ -136,9 +133,8 @@ export function initSchedule(dom, ctx) {
 		const byDay = new Map(days.map(d => [isoDate(d), []]))
 		for (const a of appts) byDay.get(a.start_dt.slice(0, 10))?.push(a)
 
-		dom.schNote.textContent = `${escapeHTML(
-			masterName
-		)}: неделя ${from} — ${to}. Всего записей: ${appts.length}`
+		// textContent: не экранируем
+		dom.schNote.textContent = `${masterName}: неделя ${from} — ${to}. Всего записей: ${appts.length}`
 
 		const root = dom.weekGrid
 		root.innerHTML = ''

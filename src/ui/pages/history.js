@@ -56,16 +56,15 @@ export function initHistory(dom, ctx) {
 		items.sort((a, b) => b.start_dt.localeCompare(a.start_dt))
 
 		if (!items.length) {
-			dom.hisNote.textContent = `История пуста для ${escapeHTML(
-				client?.full_name ?? '—'
-			)}.`
+			// textContent: не экранируем
+			dom.hisNote.textContent = `История пуста для ${client?.full_name ?? '—'}.`
 			dom.historyTable.innerHTML = ''
 			return
 		}
 
-		dom.hisNote.textContent = `Найдено записей: ${
-			items.length
-		} для ${escapeHTML(client?.full_name ?? '—')}.`
+		dom.hisNote.textContent = `Найдено записей: ${items.length} для ${
+			client?.full_name ?? '—'
+		}.`
 
 		const rows = []
 		rows.push(
