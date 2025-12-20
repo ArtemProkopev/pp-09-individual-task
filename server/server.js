@@ -1,5 +1,7 @@
+// server/server.js
 import Database from 'better-sqlite3'
 import cors from 'cors'
+import crypto from 'crypto'
 import express from 'express'
 import fs from 'fs'
 import path from 'path'
@@ -7,7 +9,6 @@ import { fileURLToPath } from 'url'
 
 /**
  * Надёжные пути: считаем всё от папки, где лежит ЭТОТ server.js
- * (неважно, откуда ты запускаешь node)
  */
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -18,16 +19,19 @@ const DB_PATH = path.join(DB_DIR, 'beauty_scheduler.db')
 const SCHEMA_SQL = path.join(DB_DIR, 'schema.sql')
 const SEED_SQL = path.join(DB_DIR, 'seed.sql')
 
-/** Создаём папку db если нет */
 fs.mkdirSync(DB_DIR, { recursive: true })
 
 const app = express()
 
 /**
- * Если фронт будет открываться с ЭТОГО ЖЕ домена/порта (http://localhost:5174),
- * то CORS вообще не нужен, но пусть останется — не мешает.
+ * Если фронт с этого же origin — CORS не нужен.
+ * Но чтобы не мешал деву — оставим, но ограничим по умолчанию.
  */
-app.use(cors())
+app.use(
+	cors({
+		origin: true, // отражаем origin (удобно для dev)
+	})
+)
 
 app.use(express.json())
 
@@ -40,12 +44,16 @@ function runSqlFile(absPath) {
 	db.exec(sql)
 }
 
-// init schema
+// init schema (ожидается, что schema.sql идемпотентен: CREATE TABLE IF NOT EXISTS ...)
 runSqlFile(SCHEMA_SQL)
 
 // helper uid
 function uid(prefix = 'id') {
-	return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`
+	// crypto.randomUUID есть в современных Node
+	const u = crypto.randomUUID
+		? crypto.randomUUID()
+		: crypto.randomBytes(16).toString('hex')
+	return `${prefix}_${u}`
 }
 function nowIso() {
 	return new Date().toISOString()
@@ -62,24 +70,29 @@ function reseed() {
   `)
 
 	const today = new Date()
-	for (let i = 0; i < 21; i++) {
-		const d = new Date(today)
-		d.setDate(today.getDate() + i)
-		const day = d.getDay()
-		const date = d.toISOString().slice(0, 10)
 
-		for (const m of masters) {
-			const isDayOff = day === 0 // воскресенье
-			ins.run({
-				slot_id: `${m.master_id}_${date}`,
-				master_id: m.master_id,
-				date,
-				start_time: isDayOff ? '00:00' : '10:00',
-				end_time: isDayOff ? '00:00' : '18:00',
-				is_day_off: isDayOff ? 1 : 0,
-			})
+	const tx = db.transaction(() => {
+		for (let i = 0; i < 21; i++) {
+			const d = new Date(today)
+			d.setDate(today.getDate() + i)
+			const day = d.getDay()
+			const date = d.toISOString().slice(0, 10)
+
+			for (const m of masters) {
+				const isDayOff = day === 0 // воскресенье
+				ins.run({
+					slot_id: `${m.master_id}_${date}`,
+					master_id: m.master_id,
+					date,
+					start_time: isDayOff ? '00:00' : '10:00',
+					end_time: isDayOff ? '00:00' : '18:00',
+					is_day_off: isDayOff ? 1 : 0,
+				})
+			}
 		}
-	}
+	})
+
+	tx()
 }
 
 const hasSalon = db.prepare('SELECT COUNT(*) AS c FROM salons').get().c > 0
@@ -118,8 +131,9 @@ app.post('/api/reset', (req, res) => {
 // upsert client by phone
 app.post('/api/clients/upsert', (req, res) => {
 	const { full_name, phone } = req.body ?? {}
-	if (!full_name?.trim() || !phone?.trim())
+	if (!full_name?.trim() || !phone?.trim()) {
 		return res.status(400).json({ error: 'bad input' })
+	}
 
 	const normalized = phone.trim()
 	const row = db.prepare('SELECT * FROM clients WHERE phone=?').get(normalized)
@@ -135,85 +149,140 @@ app.post('/api/clients/upsert', (req, res) => {
 			'INSERT INTO clients(client_id, full_name, phone, created_at) VALUES (@client_id,@full_name,@phone,@created_at)'
 		).run(client)
 		return res.json(client)
-	} else {
-		const newName = full_name.trim()
-		if (newName && row.full_name !== newName) {
-			db.prepare('UPDATE clients SET full_name=? WHERE client_id=?').run(
-				newName,
-				row.client_id
-			)
-			const updated = db
-				.prepare('SELECT * FROM clients WHERE client_id=?')
-				.get(row.client_id)
-			return res.json(updated)
-		}
-		return res.json(row)
 	}
+
+	const newName = full_name.trim()
+	if (newName && row.full_name !== newName) {
+		db.prepare('UPDATE clients SET full_name=? WHERE client_id=?').run(
+			newName,
+			row.client_id
+		)
+		const updated = db
+			.prepare('SELECT * FROM clients WHERE client_id=?')
+			.get(row.client_id)
+		return res.json(updated)
+	}
+
+	return res.json(row)
 })
+
+function assertIsoDatetime(s) {
+	// базовая проверка формата: YYYY-MM-DDTHH:MM:SS...
+	return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)
+}
+
+/**
+ * Проверка конфликта: пересечение интервалов у одного мастера,
+ * исключая отменённые записи.
+ */
+function hasAppointmentConflict({ master_id, start_dt, end_dt }) {
+	const row = db
+		.prepare(
+			`
+      SELECT 1 AS c
+      FROM appointments
+      WHERE master_id = ?
+        AND status != 'cancelled'
+        AND NOT (end_dt <= ? OR start_dt >= ?)
+      LIMIT 1
+    `
+		)
+		.get(master_id, start_dt, end_dt)
+
+	return !!row
+}
 
 // create appointment + items (transaction)
 app.post('/api/appointments', (req, res) => {
 	const p = req.body ?? {}
+
 	if (
 		!p.client_id ||
 		!p.master_id ||
-		!p.start_dt ||
-		!p.end_dt ||
+		!assertIsoDatetime(p.start_dt) ||
+		!assertIsoDatetime(p.end_dt) ||
 		!Array.isArray(p.items) ||
 		!p.items.length
 	) {
 		return res.status(400).json({ error: 'bad input' })
 	}
 
+	// защита: end должен быть > start (строково ISO сравнивается корректно)
+	if (p.end_dt <= p.start_dt) {
+		return res.status(400).json({ error: 'bad interval' })
+	}
+
+	// Проверка конфликта
+	if (
+		hasAppointmentConflict({
+			master_id: p.master_id,
+			start_dt: p.start_dt,
+			end_dt: p.end_dt,
+		})
+	) {
+		return res.status(409).json({ error: 'time slot conflict' })
+	}
+
 	const appointment_id = uid('apt')
-	const tx = db.transaction(() => {
-		db.prepare(
-			`
-      INSERT INTO appointments(appointment_id, client_id, master_id, start_dt, end_dt, status, comment, created_at)
-      VALUES (?,?,?,?,?,'booked',?,?)
-    `
-		).run(
-			appointment_id,
-			p.client_id,
-			p.master_id,
-			p.start_dt,
-			p.end_dt,
-			p.comment ?? '',
-			nowIso()
-		)
 
-		const insItem = db.prepare(`
-      INSERT INTO appointment_items(appointment_item_id, appointment_id, service_id, price_at_time, duration_min_at_time)
-      VALUES (?,?,?,?,?)
-    `)
-
-		for (const it of p.items) {
-			insItem.run(
-				uid('ait'),
+	try {
+		const tx = db.transaction(() => {
+			db.prepare(
+				`
+        INSERT INTO appointments(appointment_id, client_id, master_id, start_dt, end_dt, status, comment, created_at)
+        VALUES (?,?,?,?,?,'booked',?,?)
+      `
+			).run(
 				appointment_id,
-				it.service_id,
-				it.price_at_time,
-				it.duration_min_at_time
+				p.client_id,
+				p.master_id,
+				p.start_dt,
+				p.end_dt,
+				(p.comment ?? '').toString(),
+				nowIso()
 			)
-		}
-	})
 
-	tx()
-	const appt = db
-		.prepare('SELECT * FROM appointments WHERE appointment_id=?')
-		.get(appointment_id)
-	res.json(appt)
+			const insItem = db.prepare(`
+        INSERT INTO appointment_items(appointment_item_id, appointment_id, service_id, price_at_time, duration_min_at_time)
+        VALUES (?,?,?,?,?)
+      `)
+
+			for (const it of p.items) {
+				if (!it?.service_id) throw new Error('bad item')
+				insItem.run(
+					uid('ait'),
+					appointment_id,
+					it.service_id,
+					Number(it.price_at_time) || 0,
+					Number(it.duration_min_at_time) || 0
+				)
+			}
+		})
+
+		tx()
+
+		const appt = db
+			.prepare('SELECT * FROM appointments WHERE appointment_id=?')
+			.get(appointment_id)
+
+		res.json(appt)
+	} catch (e) {
+		res.status(500).json({ error: 'failed to create appointment' })
+	}
 })
 
 app.patch('/api/appointments/:id/status', (req, res) => {
 	const { status } = req.body ?? {}
 	const id = req.params.id
-	if (!['completed', 'cancelled', 'no_show', 'booked'].includes(status))
-		return res.status(400).json({ error: 'bad status' })
-	db.prepare('UPDATE appointments SET status=? WHERE appointment_id=?').run(
-		status,
-		id
-	)
+
+	const allowed = new Set(['completed', 'cancelled', 'no_show', 'booked'])
+	if (!allowed.has(status)) return res.status(400).json({ error: 'bad status' })
+
+	const info = db
+		.prepare('UPDATE appointments SET status=? WHERE appointment_id=?')
+		.run(status, id)
+
+	if (info.changes === 0) return res.status(404).json({ error: 'not found' })
 	res.json({ ok: true })
 })
 
@@ -226,8 +295,11 @@ app.post('/api/masters', (req, res) => {
 		active = 1,
 		salon_id = 'sal_1',
 	} = req.body ?? {}
-	if (!full_name?.trim() || !specialization?.trim())
+
+	if (!full_name?.trim() || !specialization?.trim()) {
 		return res.status(400).json({ error: 'bad input' })
+	}
+
 	const master = {
 		master_id: uid('m'),
 		salon_id,
@@ -236,9 +308,11 @@ app.post('/api/masters', (req, res) => {
 		phone: phone.trim(),
 		active: active ? 1 : 0,
 	}
+
 	db.prepare(
 		'INSERT INTO masters VALUES (@master_id,@salon_id,@full_name,@specialization,@phone,@active)'
 	).run(master)
+
 	res.json(master)
 })
 
@@ -263,18 +337,29 @@ app.post('/api/services', (req, res) => {
 		active = 1,
 		salon_id = 'sal_1',
 	} = req.body ?? {}
+
 	if (!name?.trim()) return res.status(400).json({ error: 'bad input' })
+
+	const d = Number(duration_min)
+	const p = Number(price)
+	if (!Number.isFinite(d) || d <= 0)
+		return res.status(400).json({ error: 'bad duration_min' })
+	if (!Number.isFinite(p) || p < 0)
+		return res.status(400).json({ error: 'bad price' })
+
 	const svc = {
 		service_id: uid('s'),
 		salon_id,
 		name: name.trim(),
-		duration_min: Number(duration_min),
-		price: Number(price),
+		duration_min: d,
+		price: p,
 		active: active ? 1 : 0,
 	}
+
 	db.prepare(
 		'INSERT INTO services VALUES (@service_id,@salon_id,@name,@duration_min,@price,@active)'
 	).run(svc)
+
 	res.json(svc)
 })
 
@@ -292,8 +377,10 @@ app.delete('/api/services/:id', (req, res) => {
 
 app.put('/api/master-services', (req, res) => {
 	const { master_id, service_id, enabled } = req.body ?? {}
-	if (!master_id || !service_id)
+	if (!master_id || !service_id) {
 		return res.status(400).json({ error: 'bad input' })
+	}
+
 	if (enabled) {
 		db.prepare(
 			'INSERT OR IGNORE INTO master_services(master_id, service_id) VALUES (?,?)'
@@ -303,13 +390,16 @@ app.put('/api/master-services', (req, res) => {
 			'DELETE FROM master_services WHERE master_id=? AND service_id=?'
 		).run(master_id, service_id)
 	}
+
 	res.json({ ok: true })
 })
 
 app.put('/api/working-slots', (req, res) => {
 	const { master_id, date, start_time, end_time, is_day_off } = req.body ?? {}
 	if (!master_id || !date) return res.status(400).json({ error: 'bad input' })
+
 	const slot_id = `${master_id}_${date}`
+
 	db.prepare(
 		`
     INSERT INTO working_slots(slot_id, master_id, date, start_time, end_time, is_day_off)
@@ -327,13 +417,13 @@ app.put('/api/working-slots', (req, res) => {
 		end_time ?? '18:00',
 		is_day_off ? 1 : 0
 	)
+
 	res.json({ ok: true })
 })
 
 /**
  * ===== FRONTEND STATIC =====
  * Раздаём фронт из корня проекта pp-09/
- * (там лежат index.html, styles.css, src/ и т.д.)
  */
 const FRONT_ROOT = path.join(__dirname, '..')
 app.use(express.static(FRONT_ROOT))
@@ -344,7 +434,7 @@ app.get(/^\/(?!api\/).*/, (req, res) => {
 })
 
 /** Запуск */
-const PORT = 5174
+const PORT = Number(process.env.PORT) || 5174
 app.listen(PORT, () => {
 	console.log(`API + Front on http://localhost:${PORT}`)
 	console.log(`SQLite file: ${DB_PATH}`)

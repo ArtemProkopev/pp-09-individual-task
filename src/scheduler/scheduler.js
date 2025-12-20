@@ -1,3 +1,4 @@
+// src/scheduler/scheduler.js
 import { LRUCache } from '../shared/cache/lru.js'
 
 function toMinutes(hhmm) {
@@ -14,24 +15,27 @@ function dtFromDateAndHHMM(dateStr, hhmm) {
 }
 
 export function sumDuration(services) {
-	return services.reduce((a, s) => a + s.duration_min, 0)
+	return services.reduce((a, s) => a + (Number(s.duration_min) || 0), 0)
 }
 
 function buildBusyIntervals(appts) {
 	const out = []
 	for (const a of appts) {
+		// отменённые не блокируют слот
 		if (a.status === 'cancelled') continue
+
 		out.push([
 			toMinutes(a.start_dt.slice(11, 16)),
 			toMinutes(a.end_dt.slice(11, 16)),
 		])
 	}
-	out.sort((a, b) => a[0] - b[0])
+	out.sort((x, y) => x[0] - y[0])
 	return out
 }
 
 function hasConflict(busy, start, end) {
 	for (const [bs, be] of busy) {
+		// busy интервалы отсортированы
 		if (bs >= end) return false
 		if (be > start && bs < end) return true
 	}
@@ -59,7 +63,12 @@ export function buildAvailableSlotsCached({
 	existingAppointments,
 	stepMin = 15,
 }) {
-	const baseKey = `${masterId}|${dateStr}|${durationMin}|${stepMin}|${db.rev}`
+	const dur = Number(durationMin) || 0
+	const step = Number(stepMin) || 15
+	if (dur <= 0) return { slots: [], fromCache: false }
+
+	// db.rev — хороший инвалидационный ключ: обновили snapshot → новый rev → новый кэш
+	const baseKey = `${masterId}|${dateStr}|${dur}|${step}|${db.rev}`
 
 	const cachedSlots = slotCache.get(baseKey)
 	if (cachedSlots) return { slots: cachedSlots, fromCache: true }
@@ -75,10 +84,10 @@ export function buildAvailableSlotsCached({
 	}
 
 	const slots = []
-	const lastStart = window.endMin - durationMin
+	const lastStart = window.endMin - dur
 
-	for (let start = window.startMin; start <= lastStart; start += stepMin) {
-		const end = start + durationMin
+	for (let start = window.startMin; start <= lastStart; start += step) {
+		const end = start + dur
 		if (hasConflict(busy, start, end)) continue
 
 		const startHHMM = minutesToHHMM(start)

@@ -1,5 +1,20 @@
 # Node.js
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# env
+.env
+.env.*
+!.env.example
+
+# build artifacts
+dist/
+build/
+coverage/
+.cache/
 
 # SQLite (локальная БД)
 *.db
@@ -8,6 +23,11 @@ node_modules/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Если БД хранится в server/db
+server/db/*.db
+server/db/*.sqlite
+server/db/*.sqlite3
 
 # IDE
 .vscode/

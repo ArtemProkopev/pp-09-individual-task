@@ -1,3 +1,4 @@
+// src/data/store/store.js
 import { clearSlotCache } from '../../scheduler/scheduler.js'
 import { buildIndexes } from '../indexes/indexes.js'
 import { prepareDB } from '../schema/prepareDB.js'
@@ -23,6 +24,7 @@ export function createStore() {
 	}
 
 	function notify() {
+		if (!db || !ix) return
 		for (const fn of listeners) fn(db, ix)
 	}
 
@@ -35,15 +37,19 @@ export function createStore() {
 		return db
 	}
 
-	// commit = выполнить API-действие, потом перезагрузить snapshot
+	/**
+	 * commit = выполнить API-действие, потом перезагрузить snapshot
+	 * улучшение: возвращает результат action (если он есть)
+	 */
 	async function commit(action, { clearCache = true } = {}) {
-		await action()
+		const result = await action()
 		await reload({ clearCache })
+		return result
 	}
 
 	async function reset() {
 		await api.reset()
-		await reload()
+		await reload({ clearCache: true })
 	}
 
 	return { getDB, getIX, commit, reload, reset, subscribe }
