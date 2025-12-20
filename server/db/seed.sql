@@ -13,9 +13,9 @@ INSERT INTO salons(salon_id, name, address, phone)
 VALUES ('sal_1', 'Beauty Studio Demo', 'Demo street 1', '000');
 
 INSERT INTO masters(master_id, salon_id, full_name, specialization, phone, active) VALUES
-('m1','sal_1','Ирина Коваленко','Парикмахер','000',1),
-('m2','sal_1','Мария Стэн','Маникюр','000',1),
-('m3','sal_1','Александр Поп','Барбер','000',1);
+('m1','sal_1','Иван Иванов','Парикмахер','000',1),
+('m2','sal_1','Анна Смирнова','Маникюр','000',1),
+('m3','sal_1','Пётр Петров','Барбер','000',1);
 
 INSERT INTO services(service_id, salon_id, name, duration_min, price, active) VALUES
 ('s1','sal_1','Стрижка женская',60,1500,1),
